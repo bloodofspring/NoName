@@ -1,7 +1,7 @@
 package database
 
 import (
-	// "app/database/models"
+	"app/pkg/database/models"
 	e "app/pkg/errors"
 	"os"
 	"sync"
@@ -33,7 +33,9 @@ func InitDb() *e.ErrorInfo {
 	db := GetDB()
 
 	models := []interface{}{
-		// List models here
+		&models.User{},
+		&models.Chat{},
+		&models.Thread{},
 	}
 
 	for _, model := range models {
