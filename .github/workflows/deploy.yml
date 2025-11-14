@@ -40,6 +40,7 @@ jobs:
       #     POSTGRES_DB: ${{ vars.POSTGRES_DB }}
       #     TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       #     DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     OWNER_TG_ID: ${{ vars.OWNER_TG_ID }}
       #   with:
       #     host: ${{ secrets.VPS_HOST }}
       #     username: ${{ secrets.VPS_USER }}

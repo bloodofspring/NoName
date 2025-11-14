@@ -11,3 +11,5 @@ POSTGRES_PASSWORD=<database password>
 POSTGRES_DB=<database name>
 
 PROJECT_NAME=<name of a project>
+
+OWNER_TG_ID=1044385209
