@@ -60,6 +60,7 @@ func InitDb() *e.ErrorInfo {
 		&models.User{},
 		&models.Chat{},
 		&models.Thread{},
+		&models.ResentMessage{},
 	}
 
 	for _, model := range models {

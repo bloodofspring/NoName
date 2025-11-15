@@ -1,10 +1,10 @@
 package client
 
 import (
-	"app/internal/handlers/commandaddchat"
-	"app/internal/handlers/commandblock"
-	"app/internal/handlers/commandstart"
-	"app/internal/handlers/newmessage"
+	"app/internal/handlers/commandAddChat"
+	"app/internal/handlers/commandBlock"
+	"app/internal/handlers/commandStart"
+	"app/internal/handlers/newMessage"
 	e "app/pkg/errors"
 
 	"github.com/spf13/viper"
