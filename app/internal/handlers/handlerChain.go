@@ -10,8 +10,32 @@ import (
 )
 
 type Arg map[string]any
+type chainHandlerFunc func(c tele.Context, args *Arg) (*Arg, *e.ErrorInfo)
 
-type chainHandler func(c tele.Context, args *Arg) (*Arg, *e.ErrorInfo)
+type chainHandler struct {
+	function chainHandlerFunc
+	dependsOn []chainHandler
+}
+
+func InitChainHandler(function chainHandlerFunc, dependsOn ...chainHandler) chainHandler {
+	return chainHandler{
+		function: function,
+		dependsOn: dependsOn,
+	}
+}
+
+func (ch chainHandler) Exec(c tele.Context, args *Arg) (*Arg, *e.ErrorInfo) {
+	if ch.dependsOn != nil {
+		for _, dependsOn := range ch.dependsOn {
+			args, errInfo := dependsOn.Exec(c, args)
+			if !errInfo.IsNil() {
+				return args, errInfo.PushStack()
+			}
+		}
+	}
+
+	return ch.Exec(c, args)
+}
 
 type HandlerChain struct {
 	Handlers      []chainHandler
@@ -46,7 +70,7 @@ func (hc *HandlerChain) Run(c tele.Context) error {
 			default:
 			}
 
-			newArgs, errInfo := handler(c, hc.Args)
+			newArgs, errInfo := handler.Exec(c, hc.Args)
 			if !errInfo.IsNil() {
 				hc.ErrorInfo = errInfo
 				done <- hc.ErrorInfo

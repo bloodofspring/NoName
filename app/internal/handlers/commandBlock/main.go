@@ -2,31 +2,29 @@ package commandblock
 
 import (
 	"app/internal/handlers"
-	"app/internal/handlers/shared"
 	"time"
 
+	"app/pkg/database"
 	"app/pkg/database/models"
 	e "app/pkg/errors"
 
-	"github.com/go-pg/pg/v10"
 	tele "gopkg.in/telebot.v4"
 )
 
 func CommandBlockUserChain() *handlers.HandlerChain {
 	return handlers.HandlerChain{}.Init(
 		10*time.Second,
-		shared.ConnectDatabase,
-		GetUserFromThreadID,
-		SuccessMessage,
+		handlers.InitChainHandler(GetUserFromThreadID),
+		handlers.InitChainHandler(SuccessMessage),
 	)
 }
 
 func GetUserFromThreadID(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
-	db := (*args)["db"].(*pg.DB)
+	db := database.GetDB()
 
 	if c.Chat().Type != tele.ChatSuperGroup {
 		c.Reply("Chat should be a supergroup")
-		return args, e.NewError("chat should be a supergroup", "Chat should be a supergroup").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.NewError("chat should be a supergroup", "Chat should be a supergroup").WithSeverity(e.Ingnored).WithData(map[string]any{
 			"sender": (*args)["sender"],
 		})
 	}
@@ -35,7 +33,7 @@ func GetUserFromThreadID(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.
 
 	if threadId == 0 {
 		c.Reply("Thread not found")
-		return args, e.NewError("thread not found", "Thread not found").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.NewError("thread not found", "Thread not found").WithSeverity(e.Notice).WithData(map[string]any{
 			"chat_id": c.Chat().ID,
 		})
 	}
@@ -46,7 +44,7 @@ func GetUserFromThreadID(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.
 		Where("chat_id = ?", c.Chat().ID).
 		Select()
 	if err != nil {
-		return args, e.FromError(err, "Failed to select thread").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to select thread").WithSeverity(e.Notice).WithData(map[string]any{
 			"thread_id": threadId,
 			"chat_id": c.Chat().ID,
 		})
@@ -59,7 +57,7 @@ func GetUserFromThreadID(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.
 		Set("is_blocked = true").
 		Update()
 	if err != nil {
-		return args, e.FromError(err, "Failed to update user").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to update user").WithSeverity(e.Notice).WithData(map[string]any{
 			"user": thread.AssociatedUserID,
 		})
 	}

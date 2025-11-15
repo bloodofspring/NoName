@@ -14,112 +14,82 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-func ConnectDatabase(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
+func getSenderFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
 	db := database.GetDB()
 
-	newArgs := make(handlers.Arg)
-	newArgs["db"] = db
+	user := &models.User{
+		TgID: c.Sender().ID,
+	}
 
-	return &newArgs, e.Nil()
+	_, err := db.Model(user).WherePK().SelectOrInsert()
+	if err != nil {
+		return args, e.FromError(err, "Failed to insert user").WithSeverity(e.Notice)
+	}
+
+	(*args)["user"] = user
+
+	return args, e.Nil()
 }
 
-func GetSenderAndTargetUser(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
-	db := (*args)["db"].(*pg.DB)
-	fmt.Println(c.Sender())
-	user := &models.User{
-		TgID: c.Sender().ID, 
-	}
-	fmt.Println(user)
+func getTargetFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
+	db := database.GetDB()
 
 	target := &models.User{
 		TgID: viper.GetInt64("OWNER_TG_ID"),
 		IsOwner: true,
 	}
 
-	err := db.Model(target).WherePK().Select()
-	if err == pg.ErrNoRows {
-		_, err := db.Model(&models.User{
-			TgID: viper.GetInt64("OWNER_TG_ID"),
-			IsOwner: true,
-		}).OnConflict("DO NOTHING").Insert()
-		if err != nil {
-			return args, e.FromError(err, "Failed to insert target user").WithSeverity(e.Critical).WithData(map[string]any{
-				"target": target,
-			})
-		}
-	}
+	_, err := db.Model(target).WherePK().Returning("*").SelectOrInsert()
 	if err != nil {
-		return args, e.FromError(err, "Failed to select target user").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to select target user").WithSeverity(e.Notice).WithData(map[string]any{
 			"target": target,
 		})
 	}
 
-	_, err = db.Model(user).WherePK().SelectOrInsert()
-	if err != nil {
-		return args, e.FromError(err, "Failed to insert user").WithSeverity(e.Critical)
-	}
-
-	(*args)["user"] = user
 	(*args)["target"] = target
 
 	return args, e.Nil()
 }
 
-func GetOrCrateThread(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
-	db := (*args)["db"].(*pg.DB)
+func getSenderAndTargetUserFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
+	(*args)["sender_is_owner"] = (*args)["user"].(*models.User).IsOwner
 
-	fmt.Println((*args)["target"].(*models.User).TgID)
-	if (*args)["user"].(*models.User).IsOwner {
-		var thread models.Thread
-		err := db.Model(&thread).
-			Where("thread_id = ?", c.Message().ThreadID).
-			Where("chat_id = ?", c.Chat().ID).
-			Select()
-		if err != nil {
-			return args, e.FromError(err, "Failed to select thread").WithSeverity(e.Critical).WithData(map[string]any{
-				"user": (*args)["user"],
-			})
-		}
-		(*args)["thread"] = &thread
-		return args, e.Nil()
-	}
+	return args, e.Nil()
+}
 
-	chat := &models.Chat{}
-	err := db.Model(chat).
-		Where("chat_owner_id = ?", (*args)["target"].(*models.User).TgID).
-		Select()
-	if err != nil {
-		return args, e.FromError(err, "Failed to select chat").WithSeverity(e.Critical).WithData(map[string]any{
-			"target": (*args)["target"],
-		})
-	}
-
-	(*args)["chat"] = chat
-
+func getThread(threadID int, chatID int64, associatedUserID int64, db *pg.DB) (*models.Thread, *e.ErrorInfo) {
 	var thread models.Thread
+	var err error
 
-	err = db.Model(&thread).
-		Where("chat_id = ?", chat.TgID).
-		Where("associated_user_id = ?", (*args)["user"].(*models.User).TgID).
-		Select()
-
-	if err == nil {
-		(*args)["thread"] = &thread
-		return args, e.Nil()
+	if chatID != -1 {
+		err = db.Model(&thread).
+			Where("thread_id = ?", threadID).
+			Where("chat_id = ?", chatID).
+			Select()
+	} else if associatedUserID != -1 {
+		err = db.Model(&thread).
+			Where("thread_id = ?", threadID).
+			Where("associated_user_id = ?", associatedUserID).
+			Select()
+	} else {
+		return nil, e.NewError("either chatID or associatedUserID must be set", "Missing parameter").WithSeverity(e.Notice)
 	}
 
-	if err != pg.ErrNoRows {
-		return args, e.FromError(err, "Failed to select thread").WithSeverity(e.Critical).WithData(map[string]any{
-			"target": (*args)["target"],
-			"user": (*args)["user"],
+	if err != nil {
+		return nil, e.FromError(err, "Failed to fetch thread").WithSeverity(e.Notice).WithData(map[string]any{
+			"threadID": threadID,
+			"chatID": chatID,
+			"associatedUserID": associatedUserID,
 		})
 	}
 
-	// TODO: Создать массив с IDшниками иконок и выбирать случайную
-	fmt.Println(1)
+	return &thread, e.Nil()
+}
+
+func createThread(c tele.Context, chatID int64, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
 	t, err := c.Bot().CreateTopic(
 		&tele.Chat{
-			ID: chat.TgID,
+			ID: chatID,
 		},
 		&tele.Topic{
 			Name: fmt.Sprintf("@%s", c.Sender().Username),
@@ -128,23 +98,23 @@ func GetOrCrateThread(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.Err
 	)
 
 	if err != nil {
-		return args, e.FromError(err, "Failed to create topic").WithSeverity(e.Critical).WithData(map[string]any{
-			"chat": chat,
+		return args, e.FromError(err, "Failed to create topic").WithSeverity(e.Notice).WithData(map[string]any{
+			"chatID": chatID,
 			"user": (*args)["user"],
 		})
 	}
 
-	thread = models.Thread{
+	thread := &models.Thread{
 		ThreadID: t.ThreadID,
-		ChatID: chat.TgID,
+		ChatID: chatID,
 		AssociatedUserID: (*args)["user"].(*models.User).TgID,
 	}
 
-	_, err = db.Model(&thread).Insert()
+	_, err = database.GetDB().Model(thread).Insert()
 	if err != nil {
-		return args, e.FromError(err, "Failed to insert thread").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to insert thread").WithSeverity(e.Notice).WithData(map[string]any{
 			"thread": thread,
-			"chat": chat,
+			"chatID": chatID,
 			"user": (*args)["user"],
 		})
 	}
@@ -153,3 +123,62 @@ func GetOrCrateThread(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.Err
 
 	return args, e.Nil()
 }
+
+func getOrCrateThreadFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
+	db := database.GetDB()
+
+	if (*args)["sender_is_owner"].(bool) {
+		thread, errInfo := getThread(c.Message().ThreadID, c.Chat().ID, 0, db)
+		
+		if errInfo.IsNotNil() {
+			return args, errInfo.PushStack()
+		}
+		
+		(*args)["thread"] = &thread
+		
+		return args, e.Nil()
+	}
+
+	thread, errInfo := getThread(c.Message().ThreadID, 0, (*args)["user"].(*models.User).TgID, db)
+
+	if errInfo.IsNil() {
+		(*args)["thread"] = &thread
+		return args, e.Nil()
+	}
+
+	if errInfo.Unwrap() != pg.ErrNoRows {
+		return args, e.FromError(errInfo.Unwrap(), "Failed to select thread").WithSeverity(e.Notice).WithData(map[string]any{
+			"threadID": c.Message().ThreadID,
+			"chatID": c.Chat().ID,
+			"associatedUserID": (*args)["user"].(*models.User).TgID,
+			"user": (*args)["user"],
+		})
+	}
+
+	args, errInfo = createThread(c, c.Chat().ID, args)
+	if errInfo.IsNotNil() {
+		return args, errInfo.PushStack()
+	}
+
+	return args, e.Nil()
+}
+
+var (
+	
+)
+
+var (
+	GetSender = handlers.InitChainHandler(getSenderFunc)
+	GetTarget = handlers.InitChainHandler(getTargetFunc)
+
+	GetSenderAndTargetUser = handlers.InitChainHandler(
+		getSenderAndTargetUserFunc,
+		GetSender,
+		GetTarget,
+	)
+
+	GetOrCrateThread = handlers.InitChainHandler(
+		getOrCrateThreadFunc,
+		GetSenderAndTargetUser,
+	)
+)

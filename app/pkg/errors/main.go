@@ -89,6 +89,10 @@ func (e *ErrorInfo) IsNil() bool {
 	return e == nil || e.Err == nil || e.Severity == Ingnored
 }
 
+func (e *ErrorInfo) IsNotNil() bool {
+	return !e.IsNil()
+}
+
 func (e *ErrorInfo) Unwrap() error {
 	return e.Err
 }

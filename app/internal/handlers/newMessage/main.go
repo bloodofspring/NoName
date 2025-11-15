@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"app/pkg/database"
 	"app/pkg/database/models"
 	e "app/pkg/errors"
 
@@ -16,21 +17,19 @@ import (
 func NewMessageChain() *handlers.HandlerChain {
 	return handlers.HandlerChain{}.Init(
 		10*time.Second,
-		shared.ConnectDatabase,
-		shared.GetSenderAndTargetUser,
 		shared.GetOrCrateThread,
-		ChackUserIsBlocked,
-		SaveResentMessage,
-		RedirectMessageToThread,
-		UpdateResentMessage,
+		handlers.InitChainHandler(CheckUserIsBlocked),
+		handlers.InitChainHandler(SaveResentMessage),
+		handlers.InitChainHandler(RedirectMessageToThread),
+		handlers.InitChainHandler(UpdateResentMessage),
 	)
 }
 
-func ChackUserIsBlocked(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
+func CheckUserIsBlocked(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
 	user := (*args)["user"].(*models.User)
 	if user.IsBlocked {
 		c.Reply("You are blocked. There is nothting you can do with it :3")
-		return args, e.NewError("user is blocked", "User is blocked").WithSeverity(e.Warning).WithData(map[string]any{
+		return args, e.NewError("user is blocked", "User is blocked").WithSeverity(e.Ingnored).WithData(map[string]any{
 			"user": user,
 		})
 	}
@@ -42,7 +41,7 @@ func SaveResentMessage(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.Er
 	thread := (*args)["thread"].(*models.Thread)
 
 	var SenderChatMessageID, TargetChatMessageID int
-	if (*args)["user"].(*models.User).IsOwner {
+	if (*args)["user_is_owner"].(bool) {
 		SenderChatMessageID = -1
 		TargetChatMessageID = c.Message().ID
 	} else {
@@ -57,9 +56,9 @@ func SaveResentMessage(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.Er
 		TargetChatMessageID: TargetChatMessageID,
 	}
 
-	_, err := (*args)["db"].(*pg.DB).Model(resentMessage).Insert()
+	_, err := database.GetDB().Model(resentMessage).Insert()
 	if err != nil {
-		return args, e.FromError(err, "Failed to insert resent message").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to insert resent message").WithSeverity(e.Notice).WithData(map[string]any{
 			"resent_message": resentMessage,
 		})
 	}
@@ -71,7 +70,6 @@ func SaveResentMessage(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.Er
 
 func RedirectMessageToThread(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorInfo) {
 	if (*args)["user"].(*models.User).IsOwner {
-		fmt.Println("Redirecting from thread to user")
 		return RedirectFromThreadToUser(c, args)
 	}
 
@@ -83,11 +81,10 @@ func RedirectFromThreadToUser(c tele.Context, args *handlers.Arg) (*handlers.Arg
 
 	chatRecipient := &tele.Chat{ID: thread.AssociatedUserID}
 	options := &tele.SendOptions{}
+	
 	if c.Message().ReplyTo != nil {
-		fmt.Println("Reply to message ID: ", c.Message().ReplyTo.ID)
-		replyToMessageID := getReplyToMessageID((*args)["user"].(*models.User), c.Message().ReplyTo.ID, thread, (*args)["db"].(*pg.DB))
+		replyToMessageID := getReplyToMessageID((*args)["user"].(*models.User), c.Message().ReplyTo.ID, thread, database.GetDB())
 		options.ReplyTo = &tele.Message{ID: replyToMessageID}
-		fmt.Println(replyToMessageID)
 	}
 
 	msg, err := c.Bot().Copy(
@@ -96,7 +93,7 @@ func RedirectFromThreadToUser(c tele.Context, args *handlers.Arg) (*handlers.Arg
 		options,
 	)
 	if err != nil {
-		return args, e.FromError(err, "Failed to copy message").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to copy message").WithSeverity(e.Notice).WithData(map[string]any{
 			"message": msg,
 		})
 	}
@@ -111,10 +108,9 @@ func RedirectFromUserToThread(c tele.Context, args *handlers.Arg) (*handlers.Arg
 
 	chatRecipient := &tele.Chat{ID: thread.ChatID, Type: tele.ChatSuperGroup}
 	options := &tele.SendOptions{ThreadID: thread.ThreadID}
+	
 	if c.Message().ReplyTo != nil {
-		fmt.Println("Reply to message ID: ", c.Message().ReplyTo.ID)
-		replyToMessageID := getReplyToMessageID((*args)["user"].(*models.User), c.Message().ReplyTo.ID, thread, (*args)["db"].(*pg.DB))
-		fmt.Println(replyToMessageID)
+		replyToMessageID := getReplyToMessageID((*args)["user"].(*models.User), c.Message().ReplyTo.ID, thread, database.GetDB())
 		options.ReplyTo = &tele.Message{ID: replyToMessageID}
 	}
 
@@ -124,7 +120,7 @@ func RedirectFromUserToThread(c tele.Context, args *handlers.Arg) (*handlers.Arg
 		options,
 	)
 	if err != nil {
-		return args, e.FromError(err, "Failed to copy message").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to copy message").WithSeverity(e.Notice).WithData(map[string]any{
 			"message": msg,
 		})
 	}
@@ -134,9 +130,7 @@ func RedirectFromUserToThread(c tele.Context, args *handlers.Arg) (*handlers.Arg
 	return args, e.Nil()
 }
 
-func getReplyToMessageID(user *models.User, replyToMessageID int, thread *models.Thread, db *pg.DB) int {	
-	fmt.Println(thread.ID, thread.ChatID)
-	
+func getReplyToMessageID(user *models.User, replyToMessageID int, thread *models.Thread, db *pg.DB) int {		
 	if user.IsOwner {
 		var message = &models.ResentMessage{}
 		err := db.Model(message).
@@ -174,9 +168,9 @@ func UpdateResentMessage(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.
 		resentMessage.TargetChatMessageID = (*args)["sent_message"].(*tele.Message).ID
 	}
 
-	_, err := (*args)["db"].(*pg.DB).Model(resentMessage).WherePK().Column("target_chat_message_id", "sender_chat_message_id").Update()
+	_, err := database.GetDB().Model(resentMessage).WherePK().Column("target_chat_message_id", "sender_chat_message_id").Update()
 	if err != nil {
-		return args, e.FromError(err, "Failed to update resent message").WithSeverity(e.Critical).WithData(map[string]any{
+		return args, e.FromError(err, "Failed to update resent message").WithSeverity(e.Notice).WithData(map[string]any{
 			"resent_message": resentMessage,
 		})
 	}
