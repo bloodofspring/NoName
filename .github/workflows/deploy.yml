@@ -38,11 +38,25 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           OWNER_TG_ID: ${{ vars.OWNER_TG_ID }}
+          PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+          TELEGRAM_BOT_WEBHOOK_PORT: ${{ vars.TELEGRAM_BOT_WEBHOOK_PORT }}
+          PUBLIC_POSTGRES_PORT: ${{ vars.PUBLIC_POSTGRES_PORT }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_HOST,POSTGRES_PORT,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,TELEGRAM_BOT_TOKEN,DOCKERHUB_USERNAME
+          envs: |
+            POSTGRES_HOST,
+            POSTGRES_PORT,
+            POSTGRES_USER,
+            POSTGRES_PASSWORD,
+            POSTGRES_DB,
+            TELEGRAM_BOT_TOKEN,
+            DOCKERHUB_USERNAME,
+            OWNER_TG_ID,
+            PROJECT_NAME,
+            TELEGRAM_BOT_WEBHOOK_PORT,
+            PUBLIC_POSTGRES_PORT,
           script: |
             cd /var/www/${{ vars.PROJECT_NAME }}
             git pull
