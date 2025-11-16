@@ -34,11 +34,15 @@ func getTargetFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e.ErrorI
 	db := database.GetDB()
 
 	target := &models.User{
-		TgID: viper.GetInt64("OWNER_TG_ID"),
+		TgID:    viper.GetInt64("OWNER_TG_ID"),
 		IsOwner: true,
 	}
 
-	_, err := db.Model(target).WherePK().Returning("*").SelectOrInsert()
+	_, err := db.Model(target).
+		OnConflict("(tg_id) DO UPDATE").
+		Set("is_owner = EXCLUDED.is_owner").
+		Returning("*").
+		Insert()
 	if err != nil {
 		return args, e.FromError(err, "Failed to select target user").WithSeverity(e.Notice).WithData(map[string]any{
 			"target": target,
@@ -76,8 +80,8 @@ func getThread(threadID int, chatID int64, associatedUserID int64, db *pg.DB) (*
 
 	if err != nil {
 		return nil, e.FromError(err, "Failed to fetch thread").WithSeverity(e.Notice).WithData(map[string]any{
-			"threadID": threadID,
-			"chatID": chatID,
+			"threadID":         threadID,
+			"chatID":           chatID,
 			"associatedUserID": associatedUserID,
 		})
 	}
@@ -105,7 +109,7 @@ func createThread(c tele.Context, targetChat *models.Chat, args *handlers.Arg) (
 			ID: targetChat.TgID,
 		},
 		&tele.Topic{
-			Name: fmt.Sprintf("@%s", c.Sender().Username),
+			Name:              fmt.Sprintf("@%s", c.Sender().Username),
 			IconCustomEmojiID: iconIDs[rand.Intn(len(iconIDs))],
 		},
 	)
@@ -113,13 +117,13 @@ func createThread(c tele.Context, targetChat *models.Chat, args *handlers.Arg) (
 	if err != nil {
 		return args, e.FromError(err, "Failed to create topic").WithSeverity(e.Notice).WithData(map[string]any{
 			"chatID": targetChat.TgID,
-			"user": (*args)["user"],
+			"user":   (*args)["user"],
 		})
 	}
 
 	thread := &models.Thread{
-		ThreadID: t.ThreadID,
-		ChatID: targetChat.TgID,
+		ThreadID:         t.ThreadID,
+		ChatID:           targetChat.TgID,
 		AssociatedUserID: (*args)["user"].(*models.User).TgID,
 	}
 
@@ -128,7 +132,7 @@ func createThread(c tele.Context, targetChat *models.Chat, args *handlers.Arg) (
 		return args, e.FromError(err, "Failed to insert thread").WithSeverity(e.Notice).WithData(map[string]any{
 			"thread": thread,
 			"chatID": targetChat.TgID,
-			"user": (*args)["user"],
+			"user":   (*args)["user"],
 		})
 	}
 
@@ -146,13 +150,13 @@ func getOrCrateThreadFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e
 		}
 
 		thread, errInfo := getThread(c.Message().ThreadID, c.Chat().ID, 0, db)
-		
+
 		if errInfo.IsNotNil() {
 			return args, errInfo.PushStack()
 		}
-		
+
 		(*args)["thread"] = thread
-		
+
 		return args, e.Nil()
 	}
 
@@ -175,10 +179,10 @@ func getOrCrateThreadFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e
 
 	if errInfo.Unwrap() != pg.ErrNoRows {
 		return args, e.FromError(errInfo.Unwrap(), "Failed to select thread").WithSeverity(e.Notice).WithData(map[string]any{
-			"threadID": c.Message().ThreadID,
-			"chatID": c.Chat().ID,
+			"threadID":         c.Message().ThreadID,
+			"chatID":           c.Chat().ID,
 			"associatedUserID": (*args)["user"].(*models.User).TgID,
-			"user": (*args)["user"],
+			"user":             (*args)["user"],
 		})
 	}
 
@@ -190,9 +194,7 @@ func getOrCrateThreadFunc(c tele.Context, args *handlers.Arg) (*handlers.Arg, *e
 	return args, e.Nil()
 }
 
-var (
-	
-)
+var ()
 
 var (
 	GetSender = handlers.InitChainHandler(getSenderFunc)
